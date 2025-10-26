@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { RotateCcw, Star, Trophy, Sparkles, Sun, Moon } from 'lucide-react';
+import { storage } from './storage'; // Import the storage mock
 
 const GRID_SIZE = 8;
 const CELL_SIZE = 45;
@@ -37,7 +38,7 @@ const BLOCK_SHAPES = [
 ];
 
 const COLORS = [
-  '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', 
+  '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A',
   '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2',
   '#F8B739', '#52B788'
 ];
@@ -60,17 +61,16 @@ const BlockBlast = () => {
   const [darkMode, setDarkMode] = useState(false);
   const [originalPosition, setOriginalPosition] = useState(null);
   const [isSnapping, setIsSnapping] = useState(false);
-  const dragRef = useRef(null);
   const blockRefs = useRef([]);
 
   const loadLeaderboard = async () => {
     try {
-      const keys = await window.storage.list('leaderboard:', true);
+      const keys = await storage.list('leaderboard:', true);
       if (keys && keys.keys) {
         const scores = await Promise.all(
           keys.keys.map(async (key) => {
             try {
-              const result = await window.storage.get(key, true);
+              const result = await storage.get(key, true);
               return result ? JSON.parse(result.value) : null;
             } catch {
               return null;
@@ -94,7 +94,7 @@ const BlockBlast = () => {
         date: new Date().toISOString(),
         id: Date.now()
       };
-      await window.storage.set(`leaderboard:${entry.id}`, JSON.stringify(entry), true);
+      await storage.set(`leaderboard:${entry.id}`, JSON.stringify(entry), true);
       await loadLeaderboard();
     } catch (error) {
       console.error('Failed to save to leaderboard:', error);
@@ -125,8 +125,8 @@ const BlockBlast = () => {
         if (shape[r][c]) {
           const targetRow = gridRow + r;
           const targetCol = gridCol + c;
-          if (targetRow < 0 || targetRow >= GRID_SIZE || 
-              targetCol < 0 || targetCol >= GRID_SIZE || 
+          if (targetRow < 0 || targetRow >= GRID_SIZE ||
+              targetCol < 0 || targetCol >= GRID_SIZE ||
               grid[targetRow][targetCol]) {
             return false;
           }
@@ -146,7 +146,7 @@ const BlockBlast = () => {
               if (block.shape[r][c]) {
                 const targetRow = row + r;
                 const targetCol = col + c;
-                if (targetRow >= GRID_SIZE || targetCol >= GRID_SIZE || 
+                if (targetRow >= GRID_SIZE || targetCol >= GRID_SIZE ||
                     currentGrid[targetRow][targetCol]) {
                   canPlace = false;
                   break;
@@ -171,7 +171,7 @@ const BlockBlast = () => {
         const rect = gridEl.getBoundingClientRect();
         const x = rect.left + c * (CELL_SIZE + 2) + CELL_SIZE / 2;
         const y = rect.top + r * (CELL_SIZE + 2) + CELL_SIZE / 2;
-        
+
         for (let i = 0; i < 8; i++) {
           newParticles.push({
             id: `${cell}-${i}`,
@@ -231,7 +231,7 @@ const BlockBlast = () => {
     if (cellsToClear.size > 0) {
       setClearedCells(cellsToClear);
       createParticles(cellsToClear);
-      
+
       setTimeout(() => {
         const clearedGrid = newGrid.map(row => [...row]);
         cellsToClear.forEach(cell => {
@@ -265,7 +265,7 @@ const BlockBlast = () => {
     }
 
     setGrid(newGrid);
-    
+
     const newBlocks = currentBlocks.filter((_, i) => i !== blockIndex);
     setCurrentBlocks(newBlocks);
 
@@ -282,7 +282,7 @@ const BlockBlast = () => {
       setTimeout(() => {
         const freshBlocks = generateRandomBlocks();
         setCurrentBlocks(freshBlocks);
-        
+
         if (!checkIfAnyBlockCanBePlaced(freshBlocks, newGrid)) {
           setGameOver(true);
           if (newScore > 0) {
@@ -304,14 +304,14 @@ const BlockBlast = () => {
     e.preventDefault();
     const clientX = e.type === 'mousedown' ? e.clientX : e.touches[0].clientX;
     const clientY = e.type === 'mousedown' ? e.clientY : e.touches[0].clientY;
-    
+
     const rect = blockRefs.current[blockIndex].getBoundingClientRect();
     setOriginalPosition({
       x: rect.left + rect.width / 2,
       y: rect.top + rect.height / 2
     });
     setIsSnapping(false);
-    
+
     setDraggedBlock(blockIndex);
     setDragPosition({ x: clientX, y: clientY });
   };
@@ -322,14 +322,14 @@ const BlockBlast = () => {
 
     const clientX = e.type === 'mousemove' ? e.clientX : e.touches[0].clientX;
     const clientY = e.type === 'mousemove' ? e.clientY : e.touches[0].clientY;
-    
+
     setDragPosition({ x: clientX, y: clientY });
 
     const gridEl = document.getElementById('game-grid');
     if (gridEl) {
       const rect = gridEl.getBoundingClientRect();
-      const col = Math.floor((clientX - rect.left) / (CELL_SIZE + 2));
-      const row = Math.floor((clientY - rect.top) / (CELL_SIZE + 2));
+      const col = Math.round((clientX - rect.left) / (CELL_SIZE + 2));
+      const row = Math.round((clientY - rect.top) / (CELL_SIZE + 2));
 
       if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE) {
         const block = currentBlocks[draggedBlock];
@@ -442,7 +442,7 @@ const BlockBlast = () => {
               <div className="text-xs text-gray-500 dark:text-gray-400">Score</div>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowLeaderboard(!showLeaderboard)}
@@ -466,7 +466,7 @@ const BlockBlast = () => {
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Best</div>
             </div>
-            
+
             <button
               onClick={resetGame}
               className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 p-3 rounded-xl transition-all transform hover:scale-105"
@@ -490,14 +490,14 @@ const BlockBlast = () => {
                 {leaderboard.map((entry, index) => (
                   <div
                     key={entry.id}
-                    className="flex items-center justify-between bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm"
+                    className="flex items-center justify-between bg-white dark:bg-gray-600 rounded-lg p-3 shadow-sm"
                   >
                     <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
                         index === 0 ? 'bg-yellow-400 text-white' :
                         index === 1 ? 'bg-gray-300 text-gray-700' :
                         index === 2 ? 'bg-orange-400 text-white' :
-                        'bg-gray-100 text-gray-600 dark:bg-gray-600 dark:text-gray-300'
+                        'bg-gray-100 text-gray-600 dark:bg-gray-500 dark:text-gray-300'
                       }`}>
                         {index + 1}
                       </div>
@@ -562,7 +562,7 @@ const BlockBlast = () => {
           {currentBlocks.map((block, index) => (
             <div
               key={block.id}
-              className={`touch-none select-none ${draggedBlock === index ? 'opacity-20' : 'cursor-grab active:cursor-grabbing'}`}
+              className="touch-none select-none cursor-grab active:cursor-grabbing"
               ref={el => blockRefs.current[index] = el}
               onMouseDown={(e) => handleStart(e, index)}
               onTouchStart={(e) => handleStart(e, index)}
@@ -599,7 +599,7 @@ const BlockBlast = () => {
               left: dragPosition.x,
               top: dragPosition.y,
               transform: 'translate(-50%, -50%)',
-              transition: isSnapping ? 'left 0.3s ease-out, top 0.3s ease-out' : 'none',
+              transition: isSnapping ? 'left 0.3s ease-out, top 0.3s ease-out' : 'left 0.05s ease-out, top 0.05s ease-out',
             }}
           >
             <div className="bg-white dark:bg-gray-700 rounded-xl p-3 shadow-2xl inline-grid gap-[3px] opacity-90 scale-110">
