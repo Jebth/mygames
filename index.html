@@ -1,687 +1,764 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { RotateCcw, Star, Trophy, Sparkles, Sun, Moon } from 'lucide-react';
-import { storage } from './storage'; // Import the storage mock
-
-const GRID_SIZE = 8;
-const CELL_SIZE = 45;
-
-const BLOCK_SHAPES = [
-  [[1]], // Single
-  [[1, 1]], // 2 horizontal
-  [[1], [1]], // 2 vertical
-  [[1, 1, 1]], // 3 horizontal
-  [[1], [1], [1]], // 3 vertical
-  [[1, 1], [1, 1]], // 2x2 square
-  [[1, 1, 1], [1, 1, 1], [1, 1, 1]], // 3x3 square
-  [[1, 1, 1, 1]], // 4 horizontal
-  [[1], [1], [1], [1]], // 4 vertical
-  [[1, 1, 1, 1, 1]], // 5 horizontal
-  [[1], [1], [1], [1], [1]], // 5 vertical
-  [[1, 1], [1, 0]], // L shape
-  [[1, 0], [1, 1]], // L flip
-  [[1, 1], [0, 1]], // L rotate
-  [[0, 1], [1, 1]], // L rotate flip
-  [[1, 1, 1], [1, 0, 0]], // Big L
-  [[1, 1, 1], [0, 0, 1]], // Big L flip
-  [[1, 0, 0], [1, 1, 1]], // Big L rotate
-  [[0, 0, 1], [1, 1, 1]], // Big L rotate flip
-  [[1, 1, 0], [0, 1, 1]], // Z shape
-  [[0, 1, 1], [1, 1, 0]], // Z flip
-  [[1, 1, 1], [0, 1, 0]], // T shape
-  [[0, 1, 0], [1, 1, 1]], // T upside down
-  [[1, 0], [1, 1], [1, 0]], // T left
-  [[0, 1], [1, 1], [0, 1]], // T right
-  [[0, 1], [0, 1], [1, 1]], // J shape
-  [[1, 0], [1, 0], [1, 1]], // J flip
-  [[1, 1, 1], [0, 0, 1]], // J rotate
-  [[1, 0, 0], [1, 1, 1]], // J rotate flip
-];
-
-const COLORS = [
-  '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A',
-  '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2',
-  '#F8B739', '#52B788'
-];
-
-const BlockBlast = () => {
-  const [grid, setGrid] = useState(Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(null)));
-  const [score, setScore] = useState(0);
-  const [bestScore, setBestScore] = useState(0);
-  const [currentBlocks, setCurrentBlocks] = useState([]);
-  const [draggedBlock, setDraggedBlock] = useState(null);
-  const [dragPosition, setDragPosition] = useState(null);
-  const [previewPosition, setPreviewPosition] = useState(null);
-  const [gameOver, setGameOver] = useState(false);
-  const [clearedCells, setClearedCells] = useState(new Set());
-  const [particles, setParticles] = useState([]);
-  const [playerName, setPlayerName] = useState('');
-  const [showLeaderboard, setShowLeaderboard] = useState(false);
-  const [leaderboard, setLeaderboard] = useState([]);
-  const [showNameInput, setShowNameInput] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
-  const [originalPosition, setOriginalPosition] = useState(null);
-  const [isSnapping, setIsSnapping] = useState(false);
-  const blockRefs = useRef([]);
-
-  const loadLeaderboard = async () => {
-    try {
-      const keys = await storage.list('leaderboard:', true);
-      if (keys && keys.keys) {
-        const scores = await Promise.all(
-          keys.keys.map(async (key) => {
-            try {
-              const result = await storage.get(key, true);
-              return result ? JSON.parse(result.value) : null;
-            } catch {
-              return null;
-            }
-          })
-        );
-        const validScores = scores.filter(s => s !== null);
-        validScores.sort((a, b) => b.score - a.score);
-        setLeaderboard(validScores.slice(0, 10));
-      }
-    } catch (error) {
-      console.log('Leaderboard not available yet');
-    }
-  };
-
-  const saveToLeaderboard = async (name, score) => {
-    try {
-      const entry = {
-        name,
-        score,
-        date: new Date().toISOString(),
-        id: Date.now()
-      };
-      await storage.set(`leaderboard:${entry.id}`, JSON.stringify(entry), true);
-      await loadLeaderboard();
-    } catch (error) {
-      console.error('Failed to save to leaderboard:', error);
-    }
-  };
-
-  useEffect(() => {
-    loadLeaderboard();
-  }, []);
-
-  const generateRandomBlocks = useCallback(() => {
-    const blocks = [];
-    for (let i = 0; i < 3; i++) {
-      const shape = BLOCK_SHAPES[Math.floor(Math.random() * BLOCK_SHAPES.length)];
-      const color = COLORS[Math.floor(Math.random() * COLORS.length)];
-      blocks.push({ shape, color, id: Date.now() + i });
-    }
-    return blocks;
-  }, []);
-
-  useEffect(() => {
-    setCurrentBlocks(generateRandomBlocks());
-  }, [generateRandomBlocks]);
-
-  const canPlaceBlock = useCallback((shape, gridRow, gridCol) => {
-    for (let r = 0; r < shape.length; r++) {
-      for (let c = 0; c < shape[r].length; c++) {
-        if (shape[r][c]) {
-          const targetRow = gridRow + r;
-          const targetCol = gridCol + c;
-          if (targetRow < 0 || targetRow >= GRID_SIZE ||
-              targetCol < 0 || targetCol >= GRID_SIZE ||
-              grid[targetRow][targetCol]) {
-            return false;
-          }
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Block Blast Game</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-      }
-    }
-    return true;
-  }, [grid]);
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
 
-  const checkIfAnyBlockCanBePlaced = useCallback((blocks, currentGrid) => {
-    for (let block of blocks) {
-      for (let row = 0; row < GRID_SIZE; row++) {
-        for (let col = 0; col < GRID_SIZE; col++) {
-          let canPlace = true;
-          for (let r = 0; r < block.shape.length; r++) {
-            for (let c = 0; c < block.shape[r].length; c++) {
-              if (block.shape[r][c]) {
-                const targetRow = row + r;
-                const targetCol = col + c;
-                if (targetRow >= GRID_SIZE || targetCol >= GRID_SIZE ||
-                    currentGrid[targetRow][targetCol]) {
-                  canPlace = false;
-                  break;
+    <script type="text/babel">
+        const { useState, useEffect, useCallback, useRef } = React;
+
+        const GRID_SIZE = 8;
+        const CELL_SIZE = 45;
+
+        const BLOCK_SHAPES = [
+          [[1]], [[1, 1]], [[1], [1]], [[1, 1, 1]], [[1], [1], [1]], 
+          [[1, 1], [1, 1]], [[1, 1, 1], [1, 1, 1], [1, 1, 1]], 
+          [[1, 1, 1, 1]], [[1], [1], [1], [1]], 
+          [[1, 1, 1, 1, 1]], [[1], [1], [1], [1], [1]], 
+          [[1, 1], [1, 0]], [[1, 0], [1, 1]], [[1, 1], [0, 1]], [[0, 1], [1, 1]], 
+          [[1, 1, 1], [1, 0, 0]], [[1, 1, 1], [0, 0, 1]], 
+          [[1, 0, 0], [1, 1, 1]], [[0, 0, 1], [1, 1, 1]], 
+          [[1, 1, 0], [0, 1, 1]], [[0, 1, 1], [1, 1, 0]], 
+          [[1, 1, 1], [0, 1, 0]], [[0, 1, 0], [1, 1, 1]], 
+          [[1, 0], [1, 1], [1, 0]], [[0, 1], [1, 1], [0, 1]], 
+          [[0, 1], [0, 1], [1, 1]], [[1, 0], [1, 0], [1, 1]], 
+          [[1, 1, 1], [0, 0, 1]], [[1, 0, 0], [1, 1, 1]]
+        ];
+
+        const COLORS = [
+          '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', 
+          '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2',
+          '#F8B739', '#52B788'
+        ];
+
+        // Lucide Icons as SVG components
+        const RotateCcw = ({ className }) => (
+          <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+            <path d="M3 3v5h5"/>
+          </svg>
+        );
+
+        const Star = ({ className, fill }) => (
+          <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill={fill || "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+        );
+
+        const Trophy = ({ className }) => (
+          <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
+            <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
+            <path d="M4 22h16"/>
+            <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/>
+            <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/>
+            <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
+          </svg>
+        );
+
+        const Sparkles = ({ className }) => (
+          <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+            <path d="M5 3v4"/>
+            <path d="M19 17v4"/>
+            <path d="M3 5h4"/>
+            <path d="M17 19h4"/>
+          </svg>
+        );
+
+        const Sun = ({ className }) => (
+          <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2"/>
+            <path d="M12 20v2"/>
+            <path d="m4.93 4.93 1.41 1.41"/>
+            <path d="m17.66 17.66 1.41 1.41"/>
+            <path d="M2 12h2"/>
+            <path d="M20 12h2"/>
+            <path d="m6.34 17.66-1.41 1.41"/>
+            <path d="m19.07 4.93-1.41 1.41"/>
+          </svg>
+        );
+
+        const Moon = ({ className }) => (
+          <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+          </svg>
+        );
+
+        const BlockBlast = () => {
+          const [darkMode, setDarkMode] = useState(false);
+          const [grid, setGrid] = useState(Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(null)));
+          const [score, setScore] = useState(0);
+          const [bestScore, setBestScore] = useState(0);
+          const [currentBlocks, setCurrentBlocks] = useState([]);
+          const [draggedBlock, setDraggedBlock] = useState(null);
+          const [dragPosition, setDragPosition] = useState(null);
+          const [previewPosition, setPreviewPosition] = useState(null);
+          const [gameOver, setGameOver] = useState(false);
+          const [clearedCells, setClearedCells] = useState(new Set());
+          const [particles, setParticles] = useState([]);
+          const [playerName, setPlayerName] = useState('');
+          const [showLeaderboard, setShowLeaderboard] = useState(false);
+          const [leaderboard, setLeaderboard] = useState([]);
+          const [showNameInput, setShowNameInput] = useState(false);
+          const [blockPositions, setBlockPositions] = useState([]);
+          const [animatingBlock, setAnimatingBlock] = useState(null);
+          const blockRefs = useRef([]);
+
+          const loadLeaderboard = () => {
+            const stored = localStorage.getItem('blockBlastLeaderboard');
+            if (stored) {
+              const data = JSON.parse(stored);
+              data.sort((a, b) => b.score - a.score);
+              setLeaderboard(data.slice(0, 10));
+            }
+          };
+
+          const saveToLeaderboard = (name, score) => {
+            const stored = localStorage.getItem('blockBlastLeaderboard');
+            const data = stored ? JSON.parse(stored) : [];
+            data.push({
+              name,
+              score,
+              date: new Date().toISOString(),
+              id: Date.now()
+            });
+            data.sort((a, b) => b.score - a.score);
+            localStorage.setItem('blockBlastLeaderboard', JSON.stringify(data.slice(0, 50)));
+            loadLeaderboard();
+          };
+
+          useEffect(() => {
+            loadLeaderboard();
+          }, []);
+
+          const generateRandomBlocks = useCallback(() => {
+            const blocks = [];
+            for (let i = 0; i < 3; i++) {
+              const shape = BLOCK_SHAPES[Math.floor(Math.random() * BLOCK_SHAPES.length)];
+              const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+              blocks.push({ shape, color, id: Date.now() + i });
+            }
+            return blocks;
+          }, []);
+
+          useEffect(() => {
+            setCurrentBlocks(generateRandomBlocks());
+          }, []);
+
+          useEffect(() => {
+            const positions = blockRefs.current.map(ref => {
+              if (ref) {
+                const rect = ref.getBoundingClientRect();
+                return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+              }
+              return null;
+            });
+            setBlockPositions(positions);
+          }, [currentBlocks]);
+
+          const canPlaceBlock = useCallback((shape, gridRow, gridCol) => {
+            for (let r = 0; r < shape.length; r++) {
+              for (let c = 0; c < shape[r].length; c++) {
+                if (shape[r][c]) {
+                  const targetRow = gridRow + r;
+                  const targetCol = gridCol + c;
+                  if (targetRow < 0 || targetRow >= GRID_SIZE || 
+                      targetCol < 0 || targetCol >= GRID_SIZE || 
+                      grid[targetRow][targetCol]) {
+                    return false;
+                  }
                 }
               }
             }
-            if (!canPlace) break;
-          }
-          if (canPlace) return true;
-        }
-      }
-    }
-    return false;
-  }, []);
+            return true;
+          }, [grid]);
 
-  const createParticles = (cells) => {
-    const newParticles = [];
-    cells.forEach(cell => {
-      const [r, c] = cell.split('-').map(Number);
-      const gridEl = document.getElementById('game-grid');
-      if (gridEl) {
-        const rect = gridEl.getBoundingClientRect();
-        const x = rect.left + c * (CELL_SIZE + 2) + CELL_SIZE / 2;
-        const y = rect.top + r * (CELL_SIZE + 2) + CELL_SIZE / 2;
+          const checkIfAnyBlockCanBePlaced = useCallback((blocks, currentGrid) => {
+            for (let block of blocks) {
+              for (let row = 0; row < GRID_SIZE; row++) {
+                for (let col = 0; col < GRID_SIZE; col++) {
+                  let canPlace = true;
+                  for (let r = 0; r < block.shape.length; r++) {
+                    for (let c = 0; c < block.shape[r].length; c++) {
+                      if (block.shape[r][c]) {
+                        const targetRow = row + r;
+                        const targetCol = col + c;
+                        if (targetRow >= GRID_SIZE || targetCol >= GRID_SIZE || 
+                            currentGrid[targetRow][targetCol]) {
+                          canPlace = false;
+                          break;
+                        }
+                      }
+                    }
+                    if (!canPlace) break;
+                  }
+                  if (canPlace) return true;
+                }
+              }
+            }
+            return false;
+          }, []);
 
-        for (let i = 0; i < 8; i++) {
-          newParticles.push({
-            id: `${cell}-${i}`,
-            x,
-            y,
-            vx: (Math.random() - 0.5) * 8,
-            vy: (Math.random() - 0.5) * 8 - 2,
-            life: 1
-          });
-        }
-      }
-    });
-    setParticles(prev => [...prev, ...newParticles]);
-  };
+          const createParticles = (cells) => {
+            const newParticles = [];
+            cells.forEach(cell => {
+              const [r, c] = cell.split('-').map(Number);
+              const gridEl = document.getElementById('game-grid');
+              if (gridEl) {
+                const rect = gridEl.getBoundingClientRect();
+                const x = rect.left + c * (CELL_SIZE + 2) + CELL_SIZE / 2;
+                const y = rect.top + r * (CELL_SIZE + 2) + CELL_SIZE / 2;
+                
+                for (let i = 0; i < 8; i++) {
+                  newParticles.push({
+                    id: `${cell}-${i}`,
+                    x,
+                    y,
+                    vx: (Math.random() - 0.5) * 8,
+                    vy: (Math.random() - 0.5) * 8 - 2,
+                    life: 1
+                  });
+                }
+              }
+            });
+            setParticles(prev => [...prev, ...newParticles]);
+          };
 
-  useEffect(() => {
-    if (particles.length === 0) return;
+          useEffect(() => {
+            if (particles.length === 0) return;
 
-    const interval = setInterval(() => {
-      setParticles(prev => {
-        const updated = prev.map(p => ({
-          ...p,
-          x: p.x + p.vx,
-          y: p.y + p.vy,
-          vy: p.vy + 0.3,
-          life: p.life - 0.02
-        })).filter(p => p.life > 0);
-        return updated;
-      });
-    }, 16);
+            const interval = setInterval(() => {
+              setParticles(prev => {
+                const updated = prev.map(p => ({
+                  ...p,
+                  x: p.x + p.vx,
+                  y: p.y + p.vy,
+                  vy: p.vy + 0.3,
+                  life: p.life - 0.02
+                })).filter(p => p.life > 0);
+                return updated;
+              });
+            }, 16);
 
-    return () => clearInterval(interval);
-  }, [particles.length]);
+            return () => clearInterval(interval);
+          }, [particles.length]);
 
-  const clearLines = useCallback((newGrid) => {
-    const cellsToClear = new Set();
-    let linesCleared = 0;
+          const clearLines = useCallback((newGrid) => {
+            const cellsToClear = new Set();
+            let linesCleared = 0;
 
-    for (let r = 0; r < GRID_SIZE; r++) {
-      if (newGrid[r].every(cell => cell !== null)) {
-        linesCleared++;
-        for (let c = 0; c < GRID_SIZE; c++) {
-          cellsToClear.add(`${r}-${c}`);
-        }
-      }
-    }
+            for (let r = 0; r < GRID_SIZE; r++) {
+              if (newGrid[r].every(cell => cell !== null)) {
+                linesCleared++;
+                for (let c = 0; c < GRID_SIZE; c++) {
+                  cellsToClear.add(`${r}-${c}`);
+                }
+              }
+            }
 
-    for (let c = 0; c < GRID_SIZE; c++) {
-      if (newGrid.every(row => row[c] !== null)) {
-        linesCleared++;
-        for (let r = 0; r < GRID_SIZE; r++) {
-          cellsToClear.add(`${r}-${c}`);
-        }
-      }
-    }
+            for (let c = 0; c < GRID_SIZE; c++) {
+              if (newGrid.every(row => row[c] !== null)) {
+                linesCleared++;
+                for (let r = 0; r < GRID_SIZE; r++) {
+                  cellsToClear.add(`${r}-${c}`);
+                }
+              }
+            }
 
-    if (cellsToClear.size > 0) {
-      setClearedCells(cellsToClear);
-      createParticles(cellsToClear);
+            if (cellsToClear.size > 0) {
+              setClearedCells(cellsToClear);
+              createParticles(cellsToClear);
+              
+              setTimeout(() => {
+                const clearedGrid = newGrid.map(row => [...row]);
+                cellsToClear.forEach(cell => {
+                  const [r, c] = cell.split('-').map(Number);
+                  clearedGrid[r][c] = null;
+                });
+                setGrid(clearedGrid);
+                setClearedCells(new Set());
+              }, 300);
 
-      setTimeout(() => {
-        const clearedGrid = newGrid.map(row => [...row]);
-        cellsToClear.forEach(cell => {
-          const [r, c] = cell.split('-').map(Number);
-          clearedGrid[r][c] = null;
-        });
-        setGrid(clearedGrid);
-        setClearedCells(new Set());
-      }, 300);
+              return linesCleared * 10 + cellsToClear.size;
+            }
 
-      return linesCleared * 10 + cellsToClear.size;
-    }
+            return 0;
+          }, []);
 
-    return 0;
-  }, []);
+          const placeBlock = useCallback((blockIndex, gridRow, gridCol) => {
+            const block = currentBlocks[blockIndex];
+            if (!canPlaceBlock(block.shape, gridRow, gridCol)) return;
 
-  const placeBlock = useCallback((blockIndex, gridRow, gridCol) => {
-    const block = currentBlocks[blockIndex];
-    if (!canPlaceBlock(block.shape, gridRow, gridCol)) return;
+            const newGrid = grid.map(row => [...row]);
+            let cellsPlaced = 0;
 
-    const newGrid = grid.map(row => [...row]);
-    let cellsPlaced = 0;
+            for (let r = 0; r < block.shape.length; r++) {
+              for (let c = 0; c < block.shape[r].length; c++) {
+                if (block.shape[r][c]) {
+                  newGrid[gridRow + r][gridCol + c] = block.color;
+                  cellsPlaced++;
+                }
+              }
+            }
 
-    for (let r = 0; r < block.shape.length; r++) {
-      for (let c = 0; c < block.shape[r].length; c++) {
-        if (block.shape[r][c]) {
-          newGrid[gridRow + r][gridCol + c] = block.color;
-          cellsPlaced++;
-        }
-      }
-    }
+            setGrid(newGrid);
+            
+            const newBlocks = currentBlocks.filter((_, i) => i !== blockIndex);
+            setCurrentBlocks(newBlocks);
 
-    setGrid(newGrid);
+            let newScore = score + cellsPlaced;
+            const clearBonus = clearLines(newGrid);
+            newScore += clearBonus;
+            setScore(newScore);
 
-    const newBlocks = currentBlocks.filter((_, i) => i !== blockIndex);
-    setCurrentBlocks(newBlocks);
+            if (newScore > bestScore) {
+              setBestScore(newScore);
+            }
 
-    let newScore = score + cellsPlaced;
-    const clearBonus = clearLines(newGrid);
-    newScore += clearBonus;
-    setScore(newScore);
+            if (newBlocks.length === 0) {
+              setTimeout(() => {
+                const freshBlocks = generateRandomBlocks();
+                setCurrentBlocks(freshBlocks);
+                
+                if (!checkIfAnyBlockCanBePlaced(freshBlocks, newGrid)) {
+                  setGameOver(true);
+                  if (newScore > 0) {
+                    setShowNameInput(true);
+                  }
+                }
+              }, 400);
+            } else {
+              if (!checkIfAnyBlockCanBePlaced(newBlocks, newGrid)) {
+                setGameOver(true);
+                if (newScore > 0) {
+                  setShowNameInput(true);
+                }
+              }
+            }
+          }, [currentBlocks, grid, score, bestScore, canPlaceBlock, clearLines, generateRandomBlocks, checkIfAnyBlockCanBePlaced]);
 
-    if (newScore > bestScore) {
-      setBestScore(newScore);
-    }
+          const handleStart = (e, blockIndex) => {
+            e.preventDefault();
+            const clientX = e.type === 'mousedown' ? e.clientX : e.touches[0].clientX;
+            const clientY = e.type === 'mousedown' ? e.clientY : e.touches[0].clientY;
+            
+            setDraggedBlock(blockIndex);
+            setDragPosition({ x: clientX, y: clientY });
+          };
 
-    if (newBlocks.length === 0) {
-      setTimeout(() => {
-        const freshBlocks = generateRandomBlocks();
-        setCurrentBlocks(freshBlocks);
+          const handleMove = (e) => {
+            if (draggedBlock === null) return;
+            e.preventDefault();
 
-        if (!checkIfAnyBlockCanBePlaced(freshBlocks, newGrid)) {
-          setGameOver(true);
-          if (newScore > 0) {
-            setShowNameInput(true);
-          }
-        }
-      }, 400);
-    } else {
-      if (!checkIfAnyBlockCanBePlaced(newBlocks, newGrid)) {
-        setGameOver(true);
-        if (newScore > 0) {
-          setShowNameInput(true);
-        }
-      }
-    }
-  }, [currentBlocks, grid, score, bestScore, canPlaceBlock, clearLines, generateRandomBlocks, checkIfAnyBlockCanBePlaced]);
+            const clientX = e.type === 'mousemove' ? e.clientX : e.touches[0].clientX;
+            const clientY = e.type === 'mousemove' ? e.clientY : e.touches[0].clientY;
+            
+            setDragPosition({ x: clientX, y: clientY });
 
-  const handleStart = (e, blockIndex) => {
-    e.preventDefault();
-    const clientX = e.type === 'mousedown' ? e.clientX : e.touches[0].clientX;
-    const clientY = e.type === 'mousedown' ? e.clientY : e.touches[0].clientY;
+            const gridEl = document.getElementById('game-grid');
+            if (gridEl) {
+              const rect = gridEl.getBoundingClientRect();
+              const col = Math.floor((clientX - rect.left) / (CELL_SIZE + 2));
+              const row = Math.floor((clientY - rect.top) / (CELL_SIZE + 2));
 
-    const rect = blockRefs.current[blockIndex].getBoundingClientRect();
-    setOriginalPosition({
-      x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2
-    });
-    setIsSnapping(false);
+              if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE) {
+                const block = currentBlocks[draggedBlock];
+                if (canPlaceBlock(block.shape, row, col)) {
+                  setPreviewPosition({ row, col });
+                } else {
+                  setPreviewPosition(null);
+                }
+              } else {
+                setPreviewPosition(null);
+              }
+            }
+          };
 
-    setDraggedBlock(blockIndex);
-    setDragPosition({ x: clientX, y: clientY });
-  };
+          const handleEnd = () => {
+            if (draggedBlock !== null) {
+              if (previewPosition) {
+                placeBlock(draggedBlock, previewPosition.row, previewPosition.col);
+              } else {
+                setAnimatingBlock(draggedBlock);
+                setTimeout(() => {
+                  setAnimatingBlock(null);
+                }, 300);
+              }
+            }
+            setDraggedBlock(null);
+            setDragPosition(null);
+            setPreviewPosition(null);
+          };
 
-  const handleMove = (e) => {
-    if (draggedBlock === null) return;
-    e.preventDefault();
+          const resetGame = () => {
+            setGrid(Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(null)));
+            setScore(0);
+            setCurrentBlocks(generateRandomBlocks());
+            setGameOver(false);
+            setClearedCells(new Set());
+            setParticles([]);
+            setShowNameInput(false);
+          };
 
-    const clientX = e.type === 'mousemove' ? e.clientX : e.touches[0].clientX;
-    const clientY = e.type === 'mousemove' ? e.clientY : e.touches[0].clientY;
+          const handleSaveScore = () => {
+            if (playerName.trim()) {
+              saveToLeaderboard(playerName.trim(), score);
+              setShowNameInput(false);
+              setPlayerName('');
+            }
+          };
 
-    setDragPosition({ x: clientX, y: clientY });
+          useEffect(() => {
+            const handleMouseMove = (e) => handleMove(e);
+            const handleMouseUp = () => handleEnd();
+            const handleTouchMove = (e) => handleMove(e);
+            const handleTouchEnd = () => handleEnd();
 
-    const gridEl = document.getElementById('game-grid');
-    if (gridEl) {
-      const rect = gridEl.getBoundingClientRect();
-      const col = Math.round((clientX - rect.left) / (CELL_SIZE + 2));
-      const row = Math.round((clientY - rect.top) / (CELL_SIZE + 2));
+            if (draggedBlock !== null) {
+              document.addEventListener('mousemove', handleMouseMove);
+              document.addEventListener('mouseup', handleMouseUp);
+              document.addEventListener('touchmove', handleTouchMove, { passive: false });
+              document.addEventListener('touchend', handleTouchEnd);
 
-      if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE) {
-        const block = currentBlocks[draggedBlock];
-        if (canPlaceBlock(block.shape, row, col)) {
-          setPreviewPosition({ row, col });
-        } else {
-          setPreviewPosition(null);
-        }
-      } else {
-        setPreviewPosition(null);
-      }
-    }
-  };
+              return () => {
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('mouseup', handleMouseUp);
+                document.removeEventListener('touchmove', handleTouchMove);
+                document.removeEventListener('touchend', handleTouchEnd);
+              };
+            }
+          }, [draggedBlock, previewPosition, currentBlocks, grid]);
 
-  const handleEnd = () => {
-    if (draggedBlock !== null && previewPosition) {
-      placeBlock(draggedBlock, previewPosition.row, previewPosition.col);
-      setDraggedBlock(null);
-      setDragPosition(null);
-      setPreviewPosition(null);
-      setOriginalPosition(null);
-      setIsSnapping(false);
-    } else if (draggedBlock !== null) {
-      setIsSnapping(true);
-      setDragPosition(originalPosition);
-    }
-  };
+          return (
+            <div className={`min-h-screen transition-colors duration-500 ${
+              darkMode 
+                ? 'bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900' 
+                : 'bg-gradient-to-br from-purple-600 via-blue-600 to-indigo-700'
+            } flex items-center justify-center p-4`}>
+              {particles.map(p => (
+                <div
+                  key={p.id}
+                  className="fixed pointer-events-none z-50"
+                  style={{
+                    left: p.x,
+                    top: p.y,
+                    width: 8,
+                    height: 8,
+                    background: `rgba(255, 215, 0, ${p.life})`,
+                    borderRadius: '50%',
+                    boxShadow: `0 0 ${8 * p.life}px rgba(255, 215, 0, ${p.life})`,
+                    transform: 'translate(-50%, -50%)'
+                  }}
+                />
+              ))}
 
-  useEffect(() => {
-    if (isSnapping) {
-      const timer = setTimeout(() => {
-        setDraggedBlock(null);
-        setDragPosition(null);
-        setPreviewPosition(null);
-        setOriginalPosition(null);
-        setIsSnapping(false);
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [isSnapping]);
-
-  const resetGame = () => {
-    setGrid(Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(null)));
-    setScore(0);
-    setCurrentBlocks(generateRandomBlocks());
-    setGameOver(false);
-    setClearedCells(new Set());
-    setParticles([]);
-    setShowNameInput(false);
-  };
-
-  const handleSaveScore = async () => {
-    if (playerName.trim()) {
-      await saveToLeaderboard(playerName.trim(), score);
-      setShowNameInput(false);
-      setPlayerName('');
-    }
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e) => handleMove(e);
-    const handleMouseUp = () => handleEnd();
-    const handleTouchMove = (e) => handleMove(e);
-    const handleTouchEnd = () => handleEnd();
-
-    if (draggedBlock !== null) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.addEventListener('touchmove', handleTouchMove, { passive: false });
-      document.addEventListener('touchend', handleTouchEnd);
-
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-        document.removeEventListener('touchmove', handleTouchMove);
-        document.removeEventListener('touchend', handleTouchEnd);
-      };
-    }
-  }, [draggedBlock, previewPosition, currentBlocks, grid]);
-
-  return (
-    <div className={`min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-indigo-700 flex items-center justify-center p-4 ${darkMode ? 'dark' : ''}`}>
-      {/* Particles */}
-      {particles.map(p => (
-        <div
-          key={p.id}
-          className="fixed pointer-events-none z-50"
-          style={{
-            left: p.x,
-            top: p.y,
-            width: 8,
-            height: 8,
-            background: `rgba(255, 215, 0, ${p.life})`,
-            borderRadius: '50%',
-            boxShadow: `0 0 ${8 * p.life}px rgba(255, 215, 0, ${p.life})`,
-            transform: 'translate(-50%, -50%)'
-          }}
-        />
-      ))}
-
-      <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-6 max-w-2xl w-full">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center gap-3">
-            <div className="bg-gradient-to-r from-yellow-400 to-orange-500 p-3 rounded-xl">
-              <Star className="w-6 h-6 text-white" fill="white" />
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-gray-800 dark:text-white">{score}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">Score</div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowLeaderboard(!showLeaderboard)}
-              className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 p-3 rounded-xl transition-all transform hover:scale-105"
-            >
-              <Trophy className="w-5 h-5 text-white" />
-            </button>
-
-            <button
-              onClick={() => setDarkMode(!darkMode)}
-              className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 p-3 rounded-xl transition-all transform hover:scale-105 relative overflow-hidden"
-            >
-              <Sun className={`w-5 h-5 text-white absolute inset-0 m-auto transition-all duration-300 ${darkMode ? 'opacity-0 rotate-180' : 'opacity-100 rotate-0'}`} />
-              <Moon className={`w-5 h-5 text-white absolute inset-0 m-auto transition-all duration-300 ${darkMode ? 'opacity-100 rotate-0' : 'opacity-0 -rotate-180'}`} />
-            </button>
-
-            <div className="text-right">
-              <div className="flex items-center gap-1 justify-end">
-                <Trophy className="w-4 h-4 text-yellow-500" />
-                <div className="text-lg font-bold text-gray-700 dark:text-gray-300">{bestScore}</div>
-              </div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">Best</div>
-            </div>
-
-            <button
-              onClick={resetGame}
-              className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 p-3 rounded-xl transition-all transform hover:scale-105"
-            >
-              <RotateCcw className="w-5 h-5 text-white" />
-            </button>
-          </div>
-        </div>
-
-        {/* Leaderboard */}
-        {showLeaderboard && (
-          <div className="mb-6 bg-yellow-50 dark:bg-gray-700 rounded-2xl p-4 max-h-64 overflow-y-auto">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
-              <h3 className="text-lg font-bold text-gray-800 dark:text-white">Global Leaderboard</h3>
-            </div>
-            {leaderboard.length === 0 ? (
-              <p className="text-gray-500 dark:text-gray-400 text-center py-4">No scores yet. Be the first!</p>
-            ) : (
-              <div className="space-y-2">
-                {leaderboard.map((entry, index) => (
-                  <div
-                    key={entry.id}
-                    className="flex items-center justify-between bg-white dark:bg-gray-600 rounded-lg p-3 shadow-sm"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
-                        index === 0 ? 'bg-yellow-400 text-white' :
-                        index === 1 ? 'bg-gray-300 text-gray-700' :
-                        index === 2 ? 'bg-orange-400 text-white' :
-                        'bg-gray-100 text-gray-600 dark:bg-gray-500 dark:text-gray-300'
-                      }`}>
-                        {index + 1}
-                      </div>
-                      <span className="font-semibold text-gray-800 dark:text-white">{entry.name}</span>
+              <div className={`rounded-3xl shadow-2xl p-6 max-w-2xl w-full transition-colors duration-500 ${
+                darkMode ? 'bg-gray-800' : 'bg-white'
+              }`}>
+                <div className="flex justify-between items-center mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-gradient-to-r from-yellow-400 to-orange-500 p-3 rounded-xl">
+                      <Star className="w-6 h-6 text-white" fill="white" />
                     </div>
-                    <span className="text-lg font-bold text-purple-600 dark:text-purple-400">{entry.score}</span>
+                    <div>
+                      <div className={`text-3xl font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>{score}</div>
+                      <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Score</div>
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+                  
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setDarkMode(!darkMode)}
+                      className={`relative w-16 h-8 rounded-full transition-all duration-500 ${
+                        darkMode ? 'bg-gray-700' : 'bg-yellow-400'
+                      }`}
+                    >
+                      <div className={`absolute top-1 left-1 w-6 h-6 rounded-full transition-all duration-500 transform ${
+                        darkMode ? 'translate-x-8 bg-gray-900' : 'translate-x-0 bg-white'
+                      } flex items-center justify-center`}>
+                        {darkMode ? (
+                          <Moon className="w-4 h-4 text-blue-300" />
+                        ) : (
+                          <Sun className="w-4 h-4 text-yellow-500" />
+                        )}
+                      </div>
+                    </button>
 
-        {/* Grid */}
-        <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-900 rounded-2xl p-4 mb-6 flex justify-center relative">
-          <div
-            id="game-grid"
-            className="inline-grid gap-[2px] bg-gray-300 dark:bg-gray-600 p-[2px] rounded-xl relative"
-            style={{
-              gridTemplateColumns: `repeat(${GRID_SIZE}, ${CELL_SIZE}px)`,
-              gridTemplateRows: `repeat(${GRID_SIZE}, ${CELL_SIZE}px)`,
-            }}
-          >
-            {grid.map((row, r) =>
-              row.map((cell, c) => {
-                const isCleared = clearedCells.has(`${r}-${c}`);
-                const isPreview = previewPosition &&
-                  draggedBlock !== null &&
-                  currentBlocks[draggedBlock].shape.some((shapeRow, sr) =>
-                    shapeRow.some((shapeCell, sc) =>
-                      shapeCell && r === previewPosition.row + sr && c === previewPosition.col + sc
-                    )
-                  );
+                    <button
+                      onClick={() => setShowLeaderboard(!showLeaderboard)}
+                      className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 p-3 rounded-xl transition-all transform hover:scale-105"
+                    >
+                      <Trophy className="w-5 h-5 text-white" />
+                    </button>
 
-                return (
+                    <div className="text-right">
+                      <div className="flex items-center gap-1 justify-end">
+                        <Trophy className="w-4 h-4 text-yellow-500" />
+                        <div className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-gray-700'}`}>{bestScore}</div>
+                      </div>
+                      <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Best</div>
+                    </div>
+                    
+                    <button
+                      onClick={resetGame}
+                      className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 p-3 rounded-xl transition-all transform hover:scale-105"
+                    >
+                      <RotateCcw className="w-5 h-5 text-white" />
+                    </button>
+                  </div>
+                </div>
+
+                {showLeaderboard && (
+                  <div className={`mb-6 rounded-2xl p-4 max-h-64 overflow-y-auto transition-colors duration-500 ${
+                    darkMode ? 'bg-gray-700' : 'bg-gradient-to-br from-yellow-50 to-orange-50'
+                  }`}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Sparkles className={`w-5 h-5 ${darkMode ? 'text-yellow-400' : 'text-yellow-600'}`} />
+                      <h3 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Leaderboard</h3>
+                    </div>
+                    {leaderboard.length === 0 ? (
+                      <p className={`text-center py-4 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>No scores yet. Be the first!</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {leaderboard.map((entry, index) => (
+                          <div
+                            key={entry.id}
+                            className={`flex items-center justify-between rounded-lg p-3 shadow-sm transition-colors duration-500 ${
+                              darkMode ? 'bg-gray-600' : 'bg-white'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
+                                index === 0 ? 'bg-yellow-400 text-white' :
+                                index === 1 ? 'bg-gray-300 text-gray-700' :
+                                index === 2 ? 'bg-orange-400 text-white' :
+                                darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'
+                              }`}>
+                                {index + 1}
+                              </div>
+                              <span className={`font-semibold ${darkMode ? 'text-white' : 'text-gray-800'}`}>{entry.name}</span>
+                            </div>
+                            <span className="text-lg font-bold text-purple-600">{entry.score}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className={`rounded-2xl p-4 mb-6 flex justify-center relative transition-colors duration-500 ${
+                  darkMode ? 'bg-gray-700' : 'bg-gradient-to-br from-gray-50 to-gray-100'
+                }`}>
                   <div
-                    key={`${r}-${c}`}
-                    className={`rounded-md transition-all duration-200 ${
-                      isCleared ? 'scale-0' : ''
+                    id="game-grid"
+                    className={`inline-grid gap-[2px] p-[2px] rounded-xl relative transition-colors duration-500 ${
+                      darkMode ? 'bg-gray-600' : 'bg-gray-300'
                     }`}
                     style={{
-                      width: CELL_SIZE,
-                      height: CELL_SIZE,
-                      backgroundColor: isPreview
-                        ? currentBlocks[draggedBlock].color + '60'
-                        : cell || (darkMode ? '#1f2937' : '#fff'),
-                      boxShadow: cell
-                        ? 'inset 0 2px 4px rgba(255,255,255,0.3), 0 1px 2px rgba(0,0,0,0.1)'
-                        : isPreview
-                        ? '0 0 0 2px rgba(255,255,255,0.8) inset'
-                        : 'inset 0 1px 2px rgba(0,0,0,0.05)',
+                      gridTemplateColumns: `repeat(${GRID_SIZE}, ${CELL_SIZE}px)`,
+                      gridTemplateRows: `repeat(${GRID_SIZE}, ${CELL_SIZE}px)`,
                     }}
-                  />
-                );
-              })
-            )}
-          </div>
-        </div>
+                  >
+                    {grid.map((row, r) =>
+                      row.map((cell, c) => {
+                        const isCleared = clearedCells.has(`${r}-${c}`);
+                        const isPreview = previewPosition &&
+                          draggedBlock !== null &&
+                          currentBlocks[draggedBlock].shape.some((shapeRow, sr) =>
+                            shapeRow.some((shapeCell, sc) =>
+                              shapeCell && r === previewPosition.row + sr && c === previewPosition.col + sc
+                            )
+                          );
 
-        {/* Blocks */}
-        <div className="flex justify-center gap-4 flex-wrap">
-          {currentBlocks.map((block, index) => (
-            <div
-              key={block.id}
-              className="touch-none select-none cursor-grab active:cursor-grabbing"
-              ref={el => blockRefs.current[index] = el}
-              onMouseDown={(e) => handleStart(e, index)}
-              onTouchStart={(e) => handleStart(e, index)}
-            >
-              <div className="bg-white dark:bg-gray-700 rounded-xl p-3 shadow-lg inline-grid gap-[3px] transition-transform hover:scale-105">
-                {block.shape.map((row, r) => (
-                  <div key={r} className="flex gap-[3px]">
-                    {row.map((cell, c) => (
-                      <div
-                        key={c}
-                        className="rounded-sm transition-all"
-                        style={{
-                          width: 28,
-                          height: 28,
-                          backgroundColor: cell ? block.color : 'transparent',
-                          boxShadow: cell
-                            ? 'inset 0 2px 4px rgba(255,255,255,0.3), 0 2px 4px rgba(0,0,0,0.1)'
-                            : 'none',
-                        }}
-                      />
-                    ))}
+                        return (
+                          <div
+                            key={`${r}-${c}`}
+                            className={`rounded-md transition-all duration-200 ${
+                              isCleared ? 'scale-0' : ''
+                            }`}
+                            style={{
+                              width: CELL_SIZE,
+                              height: CELL_SIZE,
+                              backgroundColor: isPreview
+                                ? currentBlocks[draggedBlock].color + '60'
+                                : cell || (darkMode ? '#374151' : '#fff'),
+                              boxShadow: cell
+                                ? 'inset 0 2px 4px rgba(255,255,255,0.3), 0 1px 2px rgba(0,0,0,0.1)'
+                                : isPreview
+                                ? '0 0 0 2px rgba(255,255,255,0.8) inset'
+                                : darkMode 
+                                ? 'inset 0 1px 2px rgba(0,0,0,0.3)'
+                                : 'inset 0 1px 2px rgba(0,0,0,0.05)',
+                            }}
+                          />
+                        );
+                      })
+                    )}
                   </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+                </div>
 
-        {/* Dragged Block */}
-        {draggedBlock !== null && dragPosition && (
-          <div
-            className="fixed pointer-events-none z-40"
-            style={{
-              left: dragPosition.x,
-              top: dragPosition.y,
-              transform: 'translate(-50%, -50%)',
-              transition: isSnapping ? 'left 0.3s ease-out, top 0.3s ease-out' : 'left 0.05s ease-out, top 0.05s ease-out',
-            }}
-          >
-            <div className="bg-white dark:bg-gray-700 rounded-xl p-3 shadow-2xl inline-grid gap-[3px] opacity-90 scale-110">
-              {currentBlocks[draggedBlock].shape.map((row, r) => (
-                <div key={r} className="flex gap-[3px]">
-                  {row.map((cell, c) => (
+                <div className="flex justify-center gap-4 flex-wrap relative">
+                  {currentBlocks.map((block, index) => (
                     <div
-                      key={c}
-                      className="rounded-sm"
-                      style={{
-                        width: 28,
-                        height: 28,
-                        backgroundColor: cell ? currentBlocks[draggedBlock].color : 'transparent',
-                        boxShadow: cell
-                          ? 'inset 0 2px 4px rgba(255,255,255,0.3), 0 4px 8px rgba(0,0,0,0.2)'
-                          : 'none',
-                      }}
-                    />
+                      key={block.id}
+                      ref={el => blockRefs.current[index] = el}
+                      className={`touch-none select-none transition-all duration-300 ${
+                        draggedBlock === index ? 'opacity-0' : 
+                        animatingBlock === index ? 'opacity-100' :
+                        'cursor-grab active:cursor-grabbing opacity-100'
+                      }`}
+                      onMouseDown={(e) => handleStart(e, index)}
+                      onTouchStart={(e) => handleStart(e, index)}
+                    >
+                      <div className={`rounded-xl p-3 shadow-lg inline-grid gap-[3px] transition-all hover:scale-105 ${
+                        darkMode ? 'bg-gray-700' : 'bg-white'
+                      }`} style={{gap: '3px'}}>
+                        {block.shape.map((row, r) => (
+                          <div key={r} className="flex" style={{gap: '3px'}}>
+                            {row.map((cell, c) => (
+                              <div
+                                key={c}
+                                className="rounded-sm transition-all"
+                                style={{
+                                  width: 28,
+                                  height: 28,
+                                  backgroundColor: cell ? block.color : 'transparent',
+                                  boxShadow: cell
+                                    ? 'inset 0 2px 4px rgba(255,255,255,0.3), 0 2px 4px rgba(0,0,0,0.1)'
+                                    : 'none',
+                                }}
+                              />
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {/* Name Input Modal */}
-        {showNameInput && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-3xl p-8 max-w-sm mx-4">
-              <h3 className="text-2xl font-bold text-gray-800 dark:text-white mb-4 text-center">Save Your Score!</h3>
-              <input
-                type="text"
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSaveScore()}
-                placeholder="Enter your name"
-                maxLength={20}
-                className="w-full px-4 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-xl mb-4 focus:outline-none focus:border-purple-500 dark:bg-gray-700 dark:text-white"
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowNameInput(false)}
-                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500 dark:text-white font-bold py-3 rounded-xl transition-all"
-                >
-                  Skip
-                </button>
-                <button
-                  onClick={handleSaveScore}
-                  disabled={!playerName.trim()}
-                  className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Save
-                </button>
+                {draggedBlock !== null && dragPosition && blockPositions[draggedBlock] && (
+                  <div
+                    className="fixed pointer-events-none z-40 transition-all duration-200"
+                    style={{
+                      left: dragPosition.x,
+                      top: dragPosition.y,
+                      transform: 'translate(-50%, -50%)',
+                    }}
+                  >
+                    <div className={`rounded-xl p-3 shadow-2xl inline-grid transition-all ${
+                      previewPosition ? 'opacity-90 scale-110' : 'opacity-70 scale-105'
+                    } ${darkMode ? 'bg-gray-700' : 'bg-white'}`} style={{gap: '3px'}}>
+                      {currentBlocks[draggedBlock].shape.map((row, r) => (
+                        <div key={r} className="flex" style={{gap: '3px'}}>
+                          {row.map((cell, c) => (
+                            <div
+                              key={c}
+                              className="rounded-sm"
+                              style={{
+                                width: 28,
+                                height: 28,
+                                backgroundColor: cell ? currentBlocks[draggedBlock].color : 'transparent',
+                                boxShadow: cell
+                                  ? 'inset 0 2px 4px rgba(255,255,255,0.3), 0 4px 8px rgba(0,0,0,0.2)'
+                                  : 'none',
+                              }}
+                            />
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {showNameInput && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className={`rounded-3xl p-8 max-w-sm mx-4 transition-colors duration-500 ${
+                      darkMode ? 'bg-gray-800' : 'bg-white'
+                    }`}>
+                      <h3 className={`text-2xl font-bold mb-4 text-center ${darkMode ? 'text-white' : 'text-gray-800'}`}>Save Your Score!</h3>
+                      <input
+                        type="text"
+                        value={playerName}
+                        onChange={(e) => setPlayerName(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleSaveScore()}
+                        placeholder="Enter your name"
+                        maxLength={20}
+                        className={`w-full px-4 py-3 border-2 rounded-xl mb-4 focus:outline-none focus:border-purple-500 transition-colors duration-500 ${
+                          darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-800'
+                        }`}
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setShowNameInput(false)}
+                          className={`flex-1 font-bold py-3 rounded-xl transition-all ${
+                            darkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-300 hover:bg-gray-400 text-gray-800'
+                          }`}
+                        >
+                          Skip
+                        </button>
+                        <button
+                          onClick={handleSaveScore}
+                          disabled={!playerName.trim()}
+                          className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {gameOver && !showNameInput && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className={`rounded-3xl p-8 max-w-sm mx-4 text-center transition-colors duration-500 ${
+                      darkMode ? 'bg-gray-800' : 'bg-white'
+                    }`}>
+                      <div className="text-6xl mb-4">🎮</div>
+                      <h2 className={`text-3xl font-bold mb-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>Game Over!</h2>
+                      <p className={`mb-4 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>No more moves available</p>
+                      <div className={`rounded-xl p-4 mb-6 transition-colors duration-500 ${
+                        darkMode ? 'bg-gray-700' : 'bg-gradient-to-r from-purple-100 to-pink-100'
+                      }`}>
+                        <div className={`text-sm mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Final Score</div>
+                        <div className={`text-4xl font-bold ${darkMode ? 'text-purple-400' : 'text-purple-600'}`}>{score}</div>
+                      </div>
+                      <button
+                        onClick={resetGame}
+                        className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-3 px-8 rounded-xl transition-all transform hover:scale-105"
+                      >
+                        Play Again
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-        )}
+          );
+        };
 
-        {/* Game Over Modal */}
-        {gameOver && !showNameInput && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-3xl p-8 max-w-sm mx-4 text-center">
-              <div className="text-6xl mb-4">🎮</div>
-              <h2 className="text-3xl font-bold text-gray-800 dark:text-white mb-2">Game Over!</h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">No more moves available</p>
-              <div className="bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-900 dark:to-pink-900 rounded-xl p-4 mb-6">
-                <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Final Score</div>
-                <div className="text-4xl font-bold text-purple-600 dark:text-purple-400">{score}</div>
-              </div>
-              <button
-                onClick={resetGame}
-                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-3 px-8 rounded-xl transition-all transform hover:scale-105"
-              >
-                Play Again
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-export default BlockBlast;
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<BlockBlast />);
+    </script>
+</body>
+</html>
